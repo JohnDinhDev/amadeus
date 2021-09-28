@@ -13,7 +13,7 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.guilds = {}
 
-    @commands.command()
+    @commands.command(name="play", aliases=['p'])
     async def play(self, ctx, *, searchInput):
         async with ctx.typing():
             # if user is not in a voice channel
@@ -70,7 +70,7 @@ class MusicCog(commands.Cog):
             if musicPlayer.queue.empty():
                 await musicPlayer.deleteLastEmbed()
 
-    @commands.command()
+    @commands.command(aliases=['q'])
     async def queue(self, ctx):
         guildId = ctx.guild.id
         musicPlayer = self.guilds.get(guildId)
