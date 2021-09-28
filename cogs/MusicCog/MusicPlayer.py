@@ -8,27 +8,37 @@ from async_timeout import timeout
  
 
 class QueueView(discord.ui.View):
-    def __init__(self, textQueue, msg):
+    def __init__(self, textQueue, msg, songIndex):
         super().__init__()
         self.textQueue = textQueue
         self.msg = msg
         # 0 indexed pages
-        self.pageIndex = 0
+        self.songIndex = songIndex
+
+        self.pageItemCount = 20
+        self.pageIndex = int(self.songIndex / self.pageItemCount)
 
     def setMsg(self, msg):
         self.msg = msg
 
-    async def renderQueue(self):
-        print(len(self.textQueue), 'hi')
+    async def renderQueue(self, songIndex=None, textQueue=None, getOutput=False):
+        if textQueue is not None:
+            self.textQueue = textQueue
         output = "```nim\n"
-        startingIndex = self.pageIndex * 20
-        endingIndex = startingIndex + 20
+        startingIndex = self.pageIndex * self.pageItemCount
+        endingIndex = startingIndex + self.pageItemCount
         endingIndex = len(self.textQueue) if len(self.textQueue) < endingIndex else endingIndex
+
+        if songIndex is not None:
+            self.songIndex = songIndex
+            if songIndex < startingIndex or songIndex > endingIndex:
+                return
+
         for i in range(startingIndex, endingIndex):
             song = self.textQueue[i]
             # current track Top string
-            ctTop = "    ⬐ current track \n" if i == 0 else ""
-            ctBottom = "\n    ⬑ current track" if i == 0 else ""
+            ctTop = "    ⬐ current track \n" if i == self.songIndex else ""
+            ctBottom = "\n    ⬑ current track" if i == self.songIndex else ""
             newLine = ("{ctTop}{index}. {title}{ctBottom}\n"
             .format(index=(i + 1), title=song.title, ctTop=ctTop, ctBottom=ctBottom))
             output += newLine
@@ -37,7 +47,11 @@ class QueueView(discord.ui.View):
 
         output += "\n```"
 
-        await self.msg.edit(content=output)
+        if getOutput is True:
+            return output
+
+        if self.msg is not None:
+            await self.msg.edit(content=output)
 
 
     @discord.ui.button(label='<<', style=discord.ButtonStyle.blurple)
@@ -53,8 +67,8 @@ class QueueView(discord.ui.View):
 
     @discord.ui.button(label='>', style=discord.ButtonStyle.blurple)
     async def next(self, button: discord.ui.Button, interaction: discord.Interaction):
-        lastPageIndex = int(len(self.textQueue) / 20)
-        remainder = len(self.textQueue) % 20
+        lastPageIndex = int(len(self.textQueue) / self.pageItemCount)
+        remainder = len(self.textQueue) % self.pageItemCount
         if remainder == 0:
             lastPageIndex -= 1
 
@@ -65,12 +79,20 @@ class QueueView(discord.ui.View):
     # This one is similar to the confirmation button except sets the inner value to `False`
     @discord.ui.button(label='>>', style=discord.ButtonStyle.blurple)
     async def last(self, button: discord.ui.Button, interaction: discord.Interaction):
-        pageIndex = len(self.textQueue) / 20
-        remainder = len(self.textQueue) % 20
+        pageIndex = len(self.textQueue) / self.pageItemCount
+        remainder = len(self.textQueue) % self.pageItemCount
         if remainder == 0:
             self.pageIndex = int(pageIndex) - 1
         else:
             self.pageIndex = int(pageIndex)
+
+        await self.renderQueue()
+
+
+    @discord.ui.button(label='Go to current page', style=discord.ButtonStyle.blurple)
+    async def goToCurrent(self, button: discord.ui.Button, interaction: discord.Interaction):
+        pageIndex = int(self.songIndex / self.pageItemCount)
+        self.pageIndex = int(pageIndex)
 
         await self.renderQueue()
 
@@ -105,6 +127,7 @@ class MusicPlayer:
         self.textChannel = textChannel
         self.lastEmbed = None
         self.queueMsg = None
+        self.textQueueIndex = 0
 
         self.task = bot.loop.create_task(self.audioPlayerTask())
 
@@ -115,12 +138,14 @@ class MusicPlayer:
             if err:
                 print(err)
             if len(self.textQueue) > 0:
-                self.textQueue.pop(0)
+                self.textQueueIndex += 1
 
             self.event.set()
 
         while True:
             self.event.clear()
+            if self.queueMsg is not None:
+                await self.queueView.renderQueue(songIndex=self.textQueueIndex)
 
             try:
                 async with timeout(300):
@@ -155,14 +180,17 @@ class MusicPlayer:
             self.queueMsg = None
 
     async def shuffle(self):
-        currentlyPlaying = self.textQueue.pop(0)
+        alreadyPlayed = self.textQueue[0:self.textQueueIndex + 1]
+        self.textQueue = self.textQueue[self.textQueueIndex + 1:]
         random.shuffle(self.textQueue)
         del self.queue
         newQueue = asyncio.Queue()
         for song in self.textQueue:
             await newQueue.put(song)
         self.queue = newQueue
-        self.textQueue.insert(0, currentlyPlaying)
+        self.textQueue = alreadyPlayed + self.textQueue
+        if self.queueMsg is not None:
+            await self.queueView.renderQueue(textQueue=self.textQueue)
 
     async def handlePlaylistInput(self, link):
         data = self.playlistYtdl.extract_info(link)
@@ -233,26 +261,10 @@ class MusicPlayer:
         if len(self.textQueue) == 0:
             return await ctx.send("```nim\nThe queue is empty\n```")
 
-        view = QueueView(self.textQueue, self.queueMsg)
-        output = "```nim\n"
-        startingIndex = 0
-        endingIndex = startingIndex + 20
-        endingIndex = len(self.textQueue) if len(self.textQueue) < endingIndex else endingIndex
-        for i in range(startingIndex, endingIndex):
-            song = self.textQueue[i]
-            # current track Top string
-            ctTop = "    ⬐ current track \n" if i == 0 else ""
-            ctBottom = "\n    ⬑ current track" if i == 0 else ""
-            newLine = ("{ctTop}{index}. {title}{ctBottom}\n"
-            .format(index=(i + 1), title=song.title, ctTop=ctTop, ctBottom=ctBottom))
-            output += newLine
-            if i == (len(self.textQueue) - 1):
-                output += "This is the end of the queue!"
-
-        output += "\n```"
-
-        self.queueMsg = await ctx.send(output, view=view)
-        view.setMsg(self.queueMsg)
+        self.queueView = QueueView(self.textQueue, self.queueMsg, self.textQueueIndex)
+        output = await self.queueView.renderQueue(getOutput=True)
+        self.queueMsg = await ctx.send(output, view=self.queueView)
+        self.queueView.setMsg(self.queueMsg)
 
     def getQueueMsg(self):
         return self.queueMsg
@@ -260,5 +272,5 @@ class MusicPlayer:
     async def destroy(self):
         await self.deleteLastEmbed()
         await self.voiceClient.disconnect()
-        await self.task.cancel()
+        self.task.cancel()
         self.cleanup()
