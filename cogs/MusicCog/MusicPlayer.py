@@ -1,6 +1,7 @@
 import discord
 import random
 from youtube_dl import YoutubeDL
+from youtube_dl.extractor import common
 import asyncio
 from cogs.MusicCog.Song import Song
 from discord import FFmpegPCMAudio, Embed, Color
@@ -106,13 +107,18 @@ class MusicPlayer:
         'cookiefile': './cookies.txt',
         'nocheckcertificate': True,
         'default_search': 'auto',
-        'extract_flat': True,
+        'youtube_include_dash_manifest': False,
+        'extract_flat': False,
+        'mark_watched': True
     }
 
+    radioYtdl = YoutubeDL(options)
+
+    options['extract_flat'] = True,
+    options['mark_watched'] = False
     playlistYtdl = YoutubeDL(options)
 
     options['extract_flat'] = False
-
     ytdl = YoutubeDL(options)
 
     del options
@@ -168,6 +174,12 @@ class MusicPlayer:
     def skip(self):
         self.voiceClient.stop()
 
+    def pause(self):
+        self.voiceClient.pause()
+
+    def resume(self):
+        self.voiceClient.resume()
+
     async def stop(self):
         del self.queue
         self.queue = asyncio.Queue()
@@ -191,6 +203,18 @@ class MusicPlayer:
         self.textQueue = alreadyPlayed + self.textQueue
         if self.queueMsg is not None:
             await self.queueView.renderQueue(textQueue=self.textQueue)
+
+    async def handleRadioCommand(self):
+        data = self.radioYtdl.extract_info(":ytrec")
+        if data is not None:
+            for entry in data['entries']:
+                if entry is None or 'Music' not in entry['categories']:
+                    continue
+                id = entry['id']
+                title = entry['title']
+                webpageUrl = "https://www.youtube.com/watch?v={}".format(id)
+                song = Song(webpageUrl, title=title)
+                await self.addSong(song)
 
     async def handlePlaylistInput(self, link):
         data = self.playlistYtdl.extract_info(link)
