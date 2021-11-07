@@ -13,6 +13,10 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.guilds = {}
 
+    @commands.command(name="reboot")
+    async def reboot(self, ctx):
+        quit()
+
     @commands.command(name="play", aliases=['p'])
     async def play(self, ctx, *, searchInput):
         async with ctx.typing():
